@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Ad Library Downloader</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #1a1a2e;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        input[type="url"], select {
+            width: 100%;
+            padding: 14px 18px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="url"]:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 12px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 30px;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f0f0f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .result {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .result h3 {
+            color: #1a1a2e;
+            margin-bottom: 15px;
+        }
+        
+        .download-links {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .download-link {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: white;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #667eea;
+            font-weight: 500;
+            transition: all 0.3s;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .download-link:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .download-link svg {
+            margin-right: 10px;
+            width: 20px;
+            height: 20px;
+        }
+        
+        .transcription {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .error {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            background: #fee;
+            color: #c33;
+            border-radius: 8px;
+            border-left: 4px solid #c33;
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .steps {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+        
+        .step {
+            text-align: center;
+            flex: 1;
+        }
+        
+        .step-number {
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .step-label {
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📹 Facebook Ad Library Downloader</h1>
+        <p class="subtitle">Lade Videos aus der Facebook Ad Library herunter</p>
+        
+        <div class="info-box">
+            <strong>So funktioniert's:</strong><br>
+            1. Gehe zu <a href="https://www.facebook.com/ads/library" target="_blank">facebook.com/ads/library</a><br>
+            2. Finde ein Video und kopiere die URL<br>
+            3. Füge die URL hier ein und starte den Download
+        </div>
+        
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-label">Video</div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-label">Audio</div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-label">Transkript</div>
+            </div>
+        </div>
+        
+        <form id="downloadForm">
+            <div class="input-group">
+                <label for="url">Facebook Ad Library URL</label>
+                <input type="url" id="url" name="url" 
+                       placeholder="https://www.facebook.com/ads/library/?id=123456789" 
+                       required>
+            </div>
+            
+            <div class="input-group">
+                <label for="language">Sprache für Transkription</label>
+                <select id="language" name="language">
+                    <option value="de">Deutsch</option>
+                    <option value="en">Englisch</option>
+                    <option value="fr">Französisch</option>
+                    <option value="es">Spanisch</option>
+                    <option value="it">Italienisch</option>
+                    <option value="pt">Portugiesisch</option>
+                    <option value="nl">Niederländisch</option>
+                    <option value="pl">Polnisch</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+                🚀 Video verarbeiten
+            </button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Verarbeite Video...</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                Dies kann je nach Videolänge einige Minuten dauern
+            </p>
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <h3>✅ Verarbeitung abgeschlossen!</h3>
+            <div class="download-links" id="downloadLinks"></div>
+            <div id="transcriptionContainer" style="display: none;">
+                <h4 style="margin-top: 20px; margin-bottom: 10px;">📝 Transkription:</h4>
+                <div class="transcription" id="transcriptionText"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('downloadForm');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+        const error = document.getElementById('error');
+        const submitBtn = document.getElementById('submitBtn');
+        const downloadLinks = document.getElementById('downloadLinks');
+        const transcriptionContainer = document.getElementById('transcriptionContainer');
+        const transcriptionText = document.getElementById('transcriptionText');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('url').value.trim();
+            const language = document.getElementById('language').value;
+            
+            // UI zurücksetzen
+            error.style.display = 'none';
+            result.style.display = 'none';
+            loading.style.display = 'block';
+            submitBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url, language })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Ein Fehler ist aufgetreten');
+                }
+                
+                // Erfolg anzeigen
+                loading.style.display = 'none';
+                result.style.display = 'block';
+                
+                // Download-Links erstellen
+                downloadLinks.innerHTML = `
+                    <a href="${data.downloads.video}" class="download-link" download>
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                        </svg>
+                        📹 Video herunterladen (MP4)
+                    </a>
+                    <a href="${data.downloads.audio}" class="download-link" download>
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                        </svg>
+                        🎵 Audio herunterladen (MP3)
+                    </a>
+                    <a href="${data.downloads.transcript}" class="download-link" download>
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        📝 Transkript herunterladen (TXT)
+                    </a>
+                `;
+                
+                // Transkription anzeigen
+                if (data.transcription) {
+                    transcriptionContainer.style.display = 'block';
+                    transcriptionText.textContent = data.transcription;
+                }
+                
+            } catch (err) {
+                loading.style.display = 'none';
+                error.style.display = 'block';
+                error.textContent = '❌ ' + err.message;
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
