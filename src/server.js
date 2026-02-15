@@ -75,6 +75,8 @@ function errorToMessage(err) {
 function addYtdlpHint(message) {
   const msg = String(message || '').trim();
   if (!msg) return msg;
+  // Prevent duplicating the hint when the message already contains it.
+  if (/FACEBOOK_COOKIES_B64|YTDLP_COOKIES_B64/i.test(msg)) return msg;
   if (/client challenge/i.test(msg) || /http error 403/i.test(msg)) {
     return `${msg}\n\nHinweis: Facebook blockiert automatisierte Requests (403 Client challenge). ` +
       `Loesung: Cookies aus einem eingeloggten Browser exportieren (cookies.txt im Netscape-Format) ` +
