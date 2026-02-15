@@ -82,7 +82,12 @@ async function getYtdlpCommand() {
     await execAsync('which yt-dlp');
     return 'yt-dlp';
   } catch {
-    return 'python3 -m yt_dlp';
+    try {
+      await execAsync('which yt-dlp-linux');
+      return 'yt-dlp-linux';
+    } catch {
+      return 'npx yt-dlp';
+    }
   }
 }
 
