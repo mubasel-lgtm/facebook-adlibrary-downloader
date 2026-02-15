@@ -17,11 +17,41 @@ const PORT = process.env.PORT || 3000;
 // 11 Labs API Key
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
+// Rate Limiting: 50 Anfragen pro Tag
+const DAILY_LIMIT = 50;
+let requestCount = 0;
+let lastReset = new Date().setHours(0,0,0,0);
+
+function checkRateLimit(req, res, next) {
+  const now = new Date().setHours(0,0,0,0);
+  
+  // Reset um Mitternacht
+  if (now > lastReset) {
+    requestCount = 0;
+    lastReset = now;
+  }
+  
+  if (requestCount >= DAILY_LIMIT) {
+    return res.status(429).json({
+      error: 'Tägliches Limit erreicht (50 Anfragen). Bitte versuche es morgen wieder.',
+      limit: DAILY_LIMIT,
+      resetAt: '00:00 UTC'
+    });
+  }
+  
+  requestCount++;
+  console.log(`[RateLimit] Anfrage ${requestCount}/${DAILY_LIMIT}`);
+  next();
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
+
+// Rate Limit auf API-Routen anwenden
+app.use('/api', checkRateLimit);
 
 // Temp-Verzeichnis
 const TEMP_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH 
@@ -467,6 +497,11 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
+    rateLimit: {
+      dailyLimit: DAILY_LIMIT,
+      usedToday: requestCount,
+      remaining: Math.max(0, DAILY_LIMIT - requestCount)
+    },
     features: {
       elevenlabs: !!ELEVENLABS_API_KEY,
       transcription: 'ElevenLabs Scribe API',
