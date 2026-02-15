@@ -120,9 +120,76 @@ const YTDLP_CMD = 'yt-dlp';
 const YTDLP_COOKIES_ARG = YTDLP_COOKIES_PATH ? ` --cookies "${YTDLP_COOKIES_PATH}"` : '';
 
 // Facebook Ad Library URL validieren
-function isValidFacebookAdLibraryUrl(url) {
-  const regex = /^https:\/\/www\.facebook\.com\/ads\/library\/\?id=\d+/;
-  return regex.test(url);
+function parseUrl(input) {
+  try {
+    return new URL(String(input));
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedDownloadHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  // Keep this tight to avoid turning this into an open proxy/SSRF endpoint.
+  if (h === 'www.facebook.com' || h === 'facebook.com') return true;
+  if (h.endsWith('.facebook.com')) return true;
+  if (h === 'fbcdn.net' || h.endsWith('.fbcdn.net')) return true;
+  if (h === 'fbsbx.com' || h.endsWith('.fbsbx.com')) return true;
+  if (h === 'instagram.com' || h.endsWith('.instagram.com')) return true;
+  if (h === 'cdninstagram.com' || h.endsWith('.cdninstagram.com')) return true;
+  return false;
+}
+
+function isFacebookAdLibraryUrl(input) {
+  const u = parseUrl(input);
+  if (!u) return false;
+  if (u.protocol !== 'https:') return false;
+  if (!/^(www\.)?facebook\.com$/i.test(u.hostname)) return false;
+  if (u.pathname !== '/ads/library/' && u.pathname !== '/ads/library') return false;
+  const id = u.searchParams.get('id');
+  return !!(id && /^\d+$/.test(id));
+}
+
+function isDirectVideoUrl(input) {
+  const u = parseUrl(input);
+  if (!u) return false;
+  if (u.protocol !== 'https:') return false;
+  if (!isAllowedDownloadHost(u.hostname)) return false;
+  // Common pattern is fbcdn hosts; URLs usually contain .mp4 (sometimes in query/redirect).
+  const full = `${u.pathname}${u.search}`.toLowerCase();
+  return full.includes('.mp4') || u.hostname.toLowerCase().includes('fbcdn');
+}
+
+function isValidInputUrl(input) {
+  return isFacebookAdLibraryUrl(input) || isDirectVideoUrl(input);
+}
+
+async function downloadDirectVideoToFile(url, outPath, timeoutMs = 180000) {
+  const u = parseUrl(url);
+  if (!u) throw new Error('Ungültige URL');
+  if (u.protocol !== 'https:') throw new Error('Nur https URLs erlaubt');
+  if (!isAllowedDownloadHost(u.hostname)) throw new Error('Host nicht erlaubt');
+
+  const response = await axios({
+    method: 'GET',
+    url: String(u),
+    responseType: 'stream',
+    timeout: timeoutMs,
+    maxRedirects: 5,
+    headers: {
+      'user-agent': 'Mozilla/5.0',
+      'accept': '*/*'
+    },
+    validateStatus: (s) => s >= 200 && s < 300
+  });
+
+  await new Promise((resolve, reject) => {
+    const ws = fs.createWriteStream(outPath);
+    response.data.on('error', reject);
+    ws.on('error', reject);
+    ws.on('finish', resolve);
+    response.data.pipe(ws);
+  });
 }
 
 // Route: Hauptseite
@@ -134,9 +201,9 @@ app.get('/', (req, res) => {
 app.post('/api/download', async (req, res) => {
   const { url } = req.body;
   
-  if (!url || !isValidFacebookAdLibraryUrl(url)) {
+  if (!url || !isValidInputUrl(url)) {
     return res.status(400).json({ 
-      error: 'Ungültige Facebook Ad Library URL. Format: https://www.facebook.com/ads/library/?id=...' 
+      error: 'Ungültige URL. Erlaubt: Facebook Ad Library Link (https://www.facebook.com/ads/library/?id=...) oder direkter Video-Link (fbcdn...mp4).' 
     });
   }
 
@@ -148,17 +215,21 @@ app.post('/api/download', async (req, res) => {
     console.log(`[${requestId}] Starte Download für: ${url}`);
     
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
+    if (isDirectVideoUrl(url)) {
+      await downloadDirectVideoToFile(url, videoPath, 240000);
+    } else {
+      const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
     
-    try {
-      await execWithTimeout(ytdlpCommand, 180000);
-    } catch (e) {
-      const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
       try {
-        await execWithTimeout(fallbackCommand, 180000);
-      } catch (e2) {
-        const details = addYtdlpHint(errorToMessage(e2));
-        throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+        await execWithTimeout(ytdlpCommand, 180000);
+      } catch (e) {
+        const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+        try {
+          await execWithTimeout(fallbackCommand, 180000);
+        } catch (e2) {
+          const details = addYtdlpHint(errorToMessage(e2));
+          throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+        }
       }
     }
 
@@ -360,9 +431,9 @@ app.get('/api/download/transcript/:requestId', async (req, res) => {
 app.post('/api/process', async (req, res) => {
   const { url, language = 'de' } = req.body;
   
-  if (!url || !isValidFacebookAdLibraryUrl(url)) {
+  if (!url || !isValidInputUrl(url)) {
     return res.status(400).json({ 
-      error: 'Ungültige Facebook Ad Library URL' 
+      error: 'Ungültige URL. Erlaubt: Facebook Ad Library Link (https://www.facebook.com/ads/library/?id=...) oder direkter Video-Link (fbcdn...mp4).' 
     });
   }
 
@@ -375,17 +446,20 @@ app.post('/api/process', async (req, res) => {
     
     // 1. Video Download
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
-    
-    try {
-      await execWithTimeout(ytdlpCommand, 180000);
-    } catch (e) {
-      const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+    if (isDirectVideoUrl(url)) {
+      await downloadDirectVideoToFile(url, videoPath, 240000);
+    } else {
+      const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
       try {
-        await execWithTimeout(fallbackCommand, 180000);
-      } catch (e2) {
-        const details = addYtdlpHint(errorToMessage(e2));
-        throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+        await execWithTimeout(ytdlpCommand, 180000);
+      } catch (e) {
+        const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+        try {
+          await execWithTimeout(fallbackCommand, 180000);
+        } catch (e2) {
+          const details = addYtdlpHint(errorToMessage(e2));
+          throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+        }
       }
     }
 
