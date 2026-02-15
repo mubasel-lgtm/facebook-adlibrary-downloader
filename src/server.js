@@ -58,6 +58,45 @@ const TEMP_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
 fs.ensureDirSync(TEMP_DIR);
 console.log(`Temp-Verzeichnis: ${TEMP_DIR}`);
 
+function errorToMessage(err) {
+  if (!err) return 'Unbekannter Fehler';
+  if (typeof err === 'string') return err;
+  if (err.stderr && String(err.stderr).trim()) return String(err.stderr).trim();
+  if (err.stdout && String(err.stdout).trim()) return String(err.stdout).trim();
+  if (err.error && err.error.message) return String(err.error.message);
+  if (err.message) return String(err.message);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function addYtdlpHint(message) {
+  const msg = String(message || '').trim();
+  if (!msg) return msg;
+  if (/client challenge/i.test(msg) || /http error 403/i.test(msg)) {
+    return `${msg}\n\nHinweis: Facebook blockiert automatisierte Requests (403 Client challenge). ` +
+      `Loesung: Cookies aus einem eingeloggten Browser exportieren (cookies.txt im Netscape-Format) ` +
+      `und als Base64 in der Railway Variable FACEBOOK_COOKIES_B64 (oder YTDLP_COOKIES_B64) hinterlegen.`;
+  }
+  return msg;
+}
+
+// Optional: yt-dlp Cookies aus Railway Variable (base64-codiertes cookies.txt).
+const YTDLP_COOKIES_B64 = process.env.FACEBOOK_COOKIES_B64 || process.env.YTDLP_COOKIES_B64;
+let YTDLP_COOKIES_PATH = null;
+if (YTDLP_COOKIES_B64) {
+  try {
+    const cookies = Buffer.from(String(YTDLP_COOKIES_B64), 'base64').toString('utf8');
+    YTDLP_COOKIES_PATH = path.join(TEMP_DIR, 'yt-dlp-cookies.txt');
+    fs.writeFileSync(YTDLP_COOKIES_PATH, cookies, 'utf8');
+    console.log('yt-dlp cookies konfiguriert (FACEBOOK_COOKIES_B64/YTDLP_COOKIES_B64).');
+  } catch (e) {
+    console.warn('Konnte yt-dlp cookies nicht laden (ungueliges Base64?).', e?.message || e);
+  }
+}
+
 // Hilfsfunktion: Ausführung mit Timeout
 function execWithTimeout(command, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
@@ -76,6 +115,7 @@ function execWithTimeout(command, timeoutMs = 120000) {
 
 // Railway/Nixpacks stellt `yt-dlp` als System-Binary bereit.
 const YTDLP_CMD = 'yt-dlp';
+const YTDLP_COOKIES_ARG = YTDLP_COOKIES_PATH ? ` --cookies "${YTDLP_COOKIES_PATH}"` : '';
 
 // Facebook Ad Library URL validieren
 function isValidFacebookAdLibraryUrl(url) {
@@ -106,13 +146,18 @@ app.post('/api/download', async (req, res) => {
     console.log(`[${requestId}] Starte Download für: ${url}`);
     
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
+    const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
     
     try {
       await execWithTimeout(ytdlpCommand, 180000);
     } catch (e) {
-      const fallbackCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
-      await execWithTimeout(fallbackCommand, 180000);
+      const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+      try {
+        await execWithTimeout(fallbackCommand, 180000);
+      } catch (e2) {
+        const details = addYtdlpHint(errorToMessage(e2));
+        throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+      }
     }
 
     if (!await fs.pathExists(videoPath)) {
@@ -133,7 +178,7 @@ app.post('/api/download', async (req, res) => {
     console.error(`[${requestId}] Download Fehler:`, error);
     await fs.remove(workDir).catch(() => {});
     res.status(500).json({ 
-      error: 'Download fehlgeschlagen: ' + (error.error?.message || error.message)
+      error: 'Download fehlgeschlagen: ' + addYtdlpHint(errorToMessage(error))
     });
   }
 });
@@ -328,13 +373,18 @@ app.post('/api/process', async (req, res) => {
     
     // 1. Video Download
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
+    const ytdlpCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
     
     try {
       await execWithTimeout(ytdlpCommand, 180000);
     } catch (e) {
-      const fallbackCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
-      await execWithTimeout(fallbackCommand, 180000);
+      const fallbackCommand = `${YTDLP_CMD}${YTDLP_COOKIES_ARG} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+      try {
+        await execWithTimeout(fallbackCommand, 180000);
+      } catch (e2) {
+        const details = addYtdlpHint(errorToMessage(e2));
+        throw new Error(details || 'yt-dlp Download fehlgeschlagen');
+      }
     }
 
     // 2. Audio Extraktion
@@ -371,7 +421,7 @@ app.post('/api/process', async (req, res) => {
     console.error(`[${requestId}] Verarbeitungsfehler:`, error);
     await fs.remove(workDir).catch(() => {});
     res.status(500).json({ 
-      error: 'Verarbeitung fehlgeschlagen: ' + (error.message || 'Unbekannter Fehler')
+      error: 'Verarbeitung fehlgeschlagen: ' + addYtdlpHint(errorToMessage(error))
     });
   }
 });
@@ -493,6 +543,7 @@ app.get('/health', (req, res) => {
     },
     features: {
       elevenlabs: !!ELEVENLABS_API_KEY,
+      facebookCookies: !!YTDLP_COOKIES_PATH,
       transcription: 'ElevenLabs Scribe API',
       speakerDiarization: true
     }
