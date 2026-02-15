@@ -4,13 +4,11 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
 const { exec } = require('child_process');
-const { promisify } = require('util');
 const ffmpeg = require('fluent-ffmpeg');
 const axios = require('axios');
 const FormData = require('form-data');
 const { v4: uuidv4 } = require('uuid');
 
-const execAsync = promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -76,20 +74,8 @@ function execWithTimeout(command, timeoutMs = 120000) {
   });
 }
 
-// yt-dlp Command finden
-async function getYtdlpCommand() {
-  try {
-    await execAsync('which yt-dlp');
-    return 'yt-dlp';
-  } catch {
-    try {
-      await execAsync('which yt-dlp-linux');
-      return 'yt-dlp-linux';
-    } catch {
-      return 'npx yt-dlp';
-    }
-  }
-}
+// Railway/Nixpacks stellt `yt-dlp` als System-Binary bereit.
+const YTDLP_CMD = 'yt-dlp';
 
 // Facebook Ad Library URL validieren
 function isValidFacebookAdLibraryUrl(url) {
@@ -120,13 +106,12 @@ app.post('/api/download', async (req, res) => {
     console.log(`[${requestId}] Starte Download für: ${url}`);
     
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCmd = await getYtdlpCommand();
-    const ytdlpCommand = `${ytdlpCmd} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
+    const ytdlpCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
     
     try {
       await execWithTimeout(ytdlpCommand, 180000);
     } catch (e) {
-      const fallbackCommand = `${ytdlpCmd} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+      const fallbackCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
       await execWithTimeout(fallbackCommand, 180000);
     }
 
@@ -343,13 +328,12 @@ app.post('/api/process', async (req, res) => {
     
     // 1. Video Download
     const videoPath = path.join(workDir, 'video.mp4');
-    const ytdlpCmd = await getYtdlpCommand();
-    const ytdlpCommand = `${ytdlpCmd} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
+    const ytdlpCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best[ext=mp4]/best" --no-check-certificate --no-warnings "${url}"`;
     
     try {
       await execWithTimeout(ytdlpCommand, 180000);
     } catch (e) {
-      const fallbackCommand = `${ytdlpCmd} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
+      const fallbackCommand = `${YTDLP_CMD} -o "${videoPath}" --format "best" --user-agent "Mozilla/5.0" --no-check-certificate --no-warnings "${url}"`;
       await execWithTimeout(fallbackCommand, 180000);
     }
 
